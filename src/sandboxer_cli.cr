@@ -64,8 +64,8 @@ module Sandboxer
       OptionParser.parse(sandbox_args) do |opts|
         opts.banner = "Usage: sandboxer run [options] -- command [args...]"
 
-        opts.on("-p FILE", "--policy FILE", "Path to JSON policy file") do |f|
-          policy_path = f
+        opts.on("-p FILE", "--policy FILE", "Path to JSON policy file") do |file|
+          policy_path = file
         end
 
         opts.on("--allow-network", "Override policy: permit network access") do
@@ -100,7 +100,6 @@ module Sandboxer
         runner = Sandboxer.runner
         result = runner.run(command, policy)
         STDOUT.puts
-        STDOUT.puts(result.inspect)
         STDOUT.print result.stdout
         STDERR.print result.stderr
         result.exit_code
@@ -124,12 +123,12 @@ module Sandboxer
       OptionParser.parse(argv) do |opts|
         opts.banner = "Usage: sandboxer inspect [options]"
 
-        opts.on("-p FILE", "--policy FILE", "Path to JSON policy file") do |f|
-          policy_path = f
+        opts.on("-p FILE", "--policy FILE", "Path to JSON policy file") do |file|
+          policy_path = file
         end
 
-        opts.on("--platform PLATFORM", "Platform to inspect for: linux, macos") do |p|
-          platform = p
+        opts.on("--platform PLATFORM", "Platform to inspect for: linux, macos") do |name|
+          platform = name
         end
 
         opts.on("-h", "--help", "Show this help") do

@@ -43,7 +43,7 @@ module Sandboxer
 
     # Whether outbound network access is permitted. Default: false.
     @[JSON::Field(key: "allow_network")]
-    property allow_network : Bool = false
+    property? allow_network : Bool = false
 
     # Working directory inside the sandbox.
     # Must fall within one of the accessible path lists.
@@ -64,7 +64,7 @@ module Sandboxer
     # Start a new session (setsid). Prevents TTY escape attacks.
     # Default: true.
     @[JSON::Field(key: "new_session")]
-    property new_session : Bool = true
+    property? new_session : Bool = true
 
     def initialize
     end
