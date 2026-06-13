@@ -87,40 +87,40 @@ module Sandboxer
     # SBPL evaluates paths against the real filesystem and does not resolve
     # relative paths — passing "./" would silently match nothing.
     def generate_profile(policy : Policy) : String
-      String.build do |s|
-        s << "(version 1)\n"
-        s << "(deny default)\n\n"
-        s << BASELINE
-        s << "\n"
+      String.build do |str|
+        str << "(version 1)\n"
+        str << "(deny default)\n\n"
+        str << BASELINE
+        str << "\n"
 
         # ── Read-only paths ───────────────────────────────────────────────
         unless policy.read_only_paths.empty?
-          s << "(allow file-read*\n"
+          str << "(allow file-read*\n"
           policy.read_only_paths.each do |path|
-            s << "  (subpath #{File.expand_path(path).inspect})\n"
+            str << "  (subpath #{File.expand_path(path).inspect})\n"
           end
-          s << ")\n\n"
+          str << ")\n\n"
         end
 
         # ── Read-write paths ──────────────────────────────────────────────
         unless policy.read_write_paths.empty?
-          s << "(allow file-read* file-write*\n"
+          str << "(allow file-read* file-write*\n"
           policy.read_write_paths.each do |path|
-            s << "  (subpath #{File.expand_path(path).inspect})\n"
+            str << "  (subpath #{File.expand_path(path).inspect})\n"
           end
-          s << ")\n\n"
+          str << ")\n\n"
         end
 
         # ── tmpfs paths ───────────────────────────────────────────────────
         # macOS has no tmpfs. We grant RW access to the existing path.
         # For true scratch isolation, pass a pre-created Dir.tempdir here.
         unless policy.tmpfs_paths.empty?
-          s << "; tmpfs: no tmpfs on macOS — granting rw to existing paths\n"
-          s << "(allow file-read* file-write*\n"
+          str << "; tmpfs: no tmpfs on macOS — granting rw to existing paths\n"
+          str << "(allow file-read* file-write*\n"
           policy.tmpfs_paths.each do |path|
-            s << "  (subpath #{File.expand_path(path).inspect})\n"
+            str << "  (subpath #{File.expand_path(path).inspect})\n"
           end
-          s << ")\n\n"
+          str << ")\n\n"
         end
 
         # ── Working directory ─────────────────────────────────────────────
@@ -129,18 +129,18 @@ module Sandboxer
           abs_wd = File.expand_path(wd)
           all_paths = (policy.read_write_paths +
                        policy.read_only_paths +
-                       policy.tmpfs_paths).map { |p| File.expand_path(p) }
-          unless all_paths.any? { |p| abs_wd.starts_with?(p) }
-            s << "; working_dir not covered by path lists — granting rw\n"
-            s << "(allow file-read* file-write* (subpath #{abs_wd.inspect}))\n\n"
+                       policy.tmpfs_paths).map { |path| File.expand_path(path) }
+          unless all_paths.any? { |path| abs_wd.starts_with?(path) }
+            str << "; working_dir not covered by path lists — granting rw\n"
+            str << "(allow file-read* file-write* (subpath #{abs_wd.inspect}))\n\n"
           end
         end
 
         # ── Network ───────────────────────────────────────────────────────
-        if policy.allow_network
-          s << "(allow network-outbound)\n"
-          s << "(allow network-inbound)\n"
-          s << "(allow network-bind)\n"
+        if policy.allow_network?
+          str << "(allow network-outbound)\n"
+          str << "(allow network-inbound)\n"
+          str << "(allow network-bind)\n"
         end
       end
     end

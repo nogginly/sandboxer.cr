@@ -5,8 +5,8 @@ describe Sandboxer do
   describe Sandboxer::Policy do
     it "builds with defaults" do
       policy = Sandboxer::Policy.new
-      policy.allow_network.should be_false
-      policy.new_session.should be_true
+      policy.allow_network?.should be_false
+      policy.new_session?.should be_true
       policy.read_only_paths.should be_empty
     end
 
@@ -23,7 +23,7 @@ describe Sandboxer do
       policy.read_only_paths.should eq(["/usr/lib", "/usr/share"])
       policy.read_write_paths.should eq(["/tmp/work"])
       policy.tmpfs_paths.should eq(["/tmp"])
-      policy.allow_network.should be_true
+      policy.allow_network?.should be_true
       policy.working_dir.should eq("/tmp/work")
       policy.env["MY_VAR"].should eq("hello")
     end
@@ -58,17 +58,17 @@ describe Sandboxer do
       restored.read_only_paths.should eq(policy.read_only_paths)
       restored.read_write_paths.should eq(policy.read_write_paths)
       restored.tmpfs_paths.should eq(policy.tmpfs_paths)
-      restored.allow_network.should eq(policy.allow_network)
+      restored.allow_network?.should eq(policy.allow_network?)
       restored.working_dir.should eq(policy.working_dir)
       restored.env.should eq(policy.env)
       restored.unset_env.should eq(policy.unset_env)
-      restored.new_session.should eq(policy.new_session)
+      restored.new_session?.should eq(policy.new_session?)
     end
 
     it "deserialises a minimal JSON object using field defaults" do
       policy = Sandboxer::Policy.from_json("{}")
-      policy.allow_network.should be_false
-      policy.new_session.should be_true
+      policy.allow_network?.should be_false
+      policy.new_session?.should be_true
       policy.read_only_paths.should be_empty
       policy.env.should be_empty
     end
@@ -87,11 +87,11 @@ describe Sandboxer do
       policy = Sandboxer::Policy.from_json(json)
       policy.read_only_paths.should eq(["/usr/share/myapp", "/etc/myapp"])
       policy.read_write_paths.should eq(["/tmp/workspace"])
-      policy.allow_network.should be_false
+      policy.allow_network?.should be_false
       policy.working_dir.should eq("/tmp/workspace")
       policy.env["APP_ENV"].should eq("sandbox")
       policy.tmpfs_paths.should be_empty # defaulted
-      policy.new_session.should be_true  # defaulted
+      policy.new_session?.should be_true # defaulted
     end
   end
 

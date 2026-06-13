@@ -99,7 +99,7 @@ module Sandboxer
       # ── Network namespace ─────────────────────────────────────────────
       # --unshare-net creates a fresh network namespace with no NICs.
       # Only loopback exists inside; no host network is reachable.
-      if policy.allow_network
+      if policy.allow_network?
         argv.concat(["--ro-bind-try", "/etc/resolv.conf", "/etc/resolv.conf"])
         argv.concat(["--ro-bind-try", "/etc/ssl", "/etc/ssl"])
         argv.concat(["--ro-bind-try", "/etc/ca-certificates", "/etc/ca-certificates"])
@@ -113,7 +113,7 @@ module Sandboxer
       argv << "--unshare-pid"
 
       # New session: detach from controlling terminal (prevents TTY escapes).
-      argv << "--new-session" if policy.new_session
+      argv << "--new-session" if policy.new_session?
 
       # ── Working directory ─────────────────────────────────────────────
       if wd = policy.working_dir
