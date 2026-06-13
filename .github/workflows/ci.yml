@@ -74,5 +74,5 @@ jobs:
 
       # Use it to run a command
       - name: Run "sandboxer check"
-        if: ${{ runner.os != "Windows" }}
+        if: ${{ runner.os != 'Windows' }}
         run: "bin/release/sandboxer check"
