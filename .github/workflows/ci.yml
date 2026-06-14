@@ -77,15 +77,28 @@ jobs:
         if: ${{ runner.os != 'Windows' }}
         run: "bin/release/sandboxer check"
 
-      # Canary: run a real sandboxed command through bwrap on Linux.
-      # This step does not fail CI — bwrap namespace creation is blocked
-      # on some runners (GH Actions). A warning is emitted when it fails
-      # as a reminder that bwrap integration testing needs a bare-metal
-      # Linux host or VM.
-      # See: https://github.com/nogginly/sandboxer.cr/issues/5
+      # Integration test: run a real sandboxed command via sandbox-exec on macOS.
+      - name: Run sandboxed command via sandbox-exec (macOS)
+        if: ${{ runner.os == 'macOS' }}
+        run: |
+          echo '{"read_only_paths":["/usr/bin","/usr/lib"],"allow_network":false}' > /tmp/test_policy.json
+          bin/release/sandboxer run --policy /tmp/test_policy.json -- /usr/bin/find /usr/bin -maxdepth 1 -name 'g*'
+
+      # Enable unprivileged user namespaces — required for bwrap.
+      # Ubuntu 23.10+ sets kernel.apparmor_restrict_unprivileged_userns=1
+      # by default, which blocks bwrap regardless of unprivileged_userns_clone.
+      # Both are set here for compatibility across Ubuntu versions.
+      - name: Enable user namespaces (Linux)
+        if: ${{ runner.os == 'Linux' }}
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 \
+            || echo "::warning::kernel.apparmor_restrict_unprivileged_userns not available on this kernel"
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 \
+            || echo "::warning::kernel.unprivileged_userns_clone not available on this kernel"
+
+      # Integration test: run a real sandboxed command through bwrap on Linux.
       - name: Run sandboxed command via bwrap (Linux)
         if: ${{ runner.os == 'Linux' }}
         run: |
           echo '{"read_only_paths":["/usr/bin","/usr/lib","/usr/lib64","/lib","/lib64"],"allow_network":true}' > /tmp/test_policy.json
-          bin/release/sandboxer run --policy /tmp/test_policy.json -- /usr/bin/find /usr/bin -maxdepth 1 -name "ls" \
-            || echo "::warning::bwrap sandboxed run failed — namespace restrictions likely apply on this runner (open issue)"
+          bin/release/sandboxer run --policy /tmp/test_policy.json -- /usr/bin/find /usr/bin -maxdepth 1 -name 'g*'

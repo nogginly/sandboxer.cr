@@ -183,10 +183,12 @@ module Sandboxer
       case platform
       when "linux"
         runner = Bwrap.new
+        STDERR.puts "Note: bwrap is not available on this host — output is for reference only." unless runner.available?
         puts "# bwrap invocation:"
         puts runner.build_argv(placeholder, policy).join(" \\\n  ")
       when "macos"
         runner = SandboxExec.new
+        STDERR.puts "Note: sandbox-exec is not available on this host — output is for reference only." unless runner.available?
         puts "# SBPL profile (sandbox-exec -f <profile> -- #{placeholder.join(" ")}):"
         puts runner.generate_profile(policy)
       else
