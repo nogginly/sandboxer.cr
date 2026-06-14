@@ -77,6 +77,13 @@ jobs:
         if: ${{ runner.os != 'Windows' }}
         run: "bin/release/sandboxer check"
 
+      # Integration test: run a real sandboxed command via sandbox-exec on macOS.
+      - name: Run sandboxed command via sandbox-exec (macOS)
+        if: ${{ runner.os == 'macOS' }}
+        run: |
+          echo '{"read_only_paths":["/usr/bin","/usr/lib"],"allow_network":false}' > /tmp/test_policy.json
+          bin/release/sandboxer run --policy /tmp/test_policy.json -- /usr/bin/find /usr/bin -maxdepth 1 -name "ls"
+
       # Enable unprivileged user namespaces — required for bwrap to create
       # mount and PID namespaces. Disabled by default on newer Ubuntu runners.
       # See: https://github.com/containers/bubblewrap/pull/728
