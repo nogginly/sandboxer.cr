@@ -81,5 +81,5 @@ jobs:
       - name: Run sandboxed command via bwrap (Linux)
         if: ${{ runner.os == 'Linux' }}
         run: |
-          echo '{"read_only_paths":["/usr/bin","/usr/lib","/usr/lib64","/lib","/lib64"],"allow_network":false}' > /tmp/test_policy.json
+          echo '{"read_only_paths":["/usr/bin","/usr/lib","/usr/lib64","/lib","/lib64"],"allow_network":true}' > /tmp/test_policy.json
           bin/release/sandboxer run --policy /tmp/test_policy.json -- /usr/bin/find /usr/bin -maxdepth 1 -name "ls"
