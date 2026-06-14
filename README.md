@@ -1,6 +1,6 @@
 # Sandboxer
 
-> **Usable on macOS and Linux. Still in development to add Windows support. **
+> **Usable on macOS and Linux. Still in development to add Windows support.**
 
 A Crystal shard for running shell commands inside a platform-native sandbox, with a configurable access policy.
 
