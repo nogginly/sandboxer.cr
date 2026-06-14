@@ -40,10 +40,12 @@ module Sandboxer
     #
     #   sandboxer run --policy policy.json -- python3 script.py
     #   sandboxer run --policy policy.json --allow-network -- curl https://example.com
+    #   sandboxer run --policy policy.json --add brew -- brew list
 
     private def self.cmd_run(argv : Array(String)) : Int32
       policy_path = nil
       allow_network_override = nil
+      preset_names = [] of String
 
       # Split argv on "--" to separate sandboxer flags from the command.
       sep = argv.index("--")
@@ -76,6 +78,10 @@ module Sandboxer
           allow_network_override = false
         end
 
+        opts.on("--add PRESET", "Merge a named preset into the policy (e.g. brew)") do |name|
+          preset_names << name
+        end
+
         opts.on("-h", "--help", "Show this help") do
           puts opts
           exit 0
@@ -90,6 +96,16 @@ module Sandboxer
 
       policy = load_policy(policy_path)
       return 1 if policy.nil?
+
+      # Apply presets.
+      preset_names.each do |name|
+        preset = resolve_preset(name)
+        if preset.nil?
+          STDERR.puts "sandboxer run: unknown preset #{name.inspect}. Known presets: brew."
+          return 1
+        end
+        policy = policy.merge(preset)
+      end
 
       # Apply CLI overrides on top of the policy file.
       if override = allow_network_override
@@ -115,10 +131,12 @@ module Sandboxer
     #
     #   sandboxer inspect --policy policy.json
     #   sandboxer inspect --policy policy.json --platform macos
+    #   sandboxer inspect --policy policy.json --add brew --platform macos
 
     private def self.cmd_inspect(argv : Array(String)) : Int32
       policy_path = nil
       platform = detect_platform
+      preset_names = [] of String
 
       OptionParser.parse(argv) do |opts|
         opts.banner = "Usage: sandboxer inspect [options]"
@@ -129,6 +147,10 @@ module Sandboxer
 
         opts.on("--platform PLATFORM", "Platform to inspect for: linux, macos") do |name|
           platform = name
+        end
+
+        opts.on("--add PRESET", "Merge a named preset into the policy (e.g. brew)") do |name|
+          preset_names << name
         end
 
         opts.on("-h", "--help", "Show this help") do
@@ -144,6 +166,16 @@ module Sandboxer
 
       policy = load_policy(policy_path)
       return 1 if policy.nil?
+
+      # Apply presets.
+      preset_names.each do |name|
+        preset = resolve_preset(name)
+        if preset.nil?
+          STDERR.puts "sandboxer inspect: unknown preset #{name.inspect}. Known presets: brew."
+          return 1
+        end
+        policy = policy.merge(preset)
+      end
 
       # Dummy command for display; inspect shows structure, not a real execution.
       placeholder = ["<command>", "<args...>"]
@@ -207,6 +239,25 @@ module Sandboxer
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    # Maps a preset name to the appropriate Policy for the current platform.
+    # Returns nil for unknown names.
+    private def self.resolve_preset(name : String) : Policy?
+      case name
+      when "brew"
+        {% if flag?(:darwin) && flag?(:aarch64) %}
+          Preset::Brew::MACOS_ARM
+        {% elsif flag?(:darwin) %}
+          Preset::Brew::MACOS_INTEL
+        {% elsif flag?(:linux) %}
+          Preset::Brew::LINUX
+        {% else %}
+          nil
+        {% end %}
+      else
+        nil
+      end
+    end
+
     private def self.load_policy(path : String?) : Policy?
       if path
         unless File.exists?(path)
@@ -250,8 +301,10 @@ module Sandboxer
         Examples:
           sandboxer run --policy policy.json -- python3 script.py
           sandboxer run --policy policy.json --allow-network -- curl https://example.com
+          sandboxer run --policy policy.json --add brew -- brew list
           sandboxer inspect --policy policy.json
           sandboxer inspect --policy policy.json --platform macos
+          sandboxer inspect --policy policy.json --add brew --platform macos
           sandboxer check
 
         Policy file (JSON):

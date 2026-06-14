@@ -92,6 +92,40 @@ Sandboxer.platform_runners.each do |runner|
 end
 ```
 
+### Merging policies
+
+Policies can be merged to layer reusable building blocks on top of a base policy:
+
+```crystal
+merged = my_policy.merge(other_policy)
+```
+
+Merge rules:
+- **Path arrays** (`read_only_paths`, `read_write_paths`, `tmpfs_paths`, `unset_env`): union, duplicates removed.
+- **`allow_network`**: `true` if either policy allows it.
+- **`new_session`**: `true` if either policy requires it.
+- **`working_dir`**: `other` wins if set, otherwise `self` is kept.
+- **`env`**: merged; `other` wins on key collision.
+
+`merge` returns a new `Policy`; neither original is modified.
+
+### Presets
+
+Sandboxer ships pre-defined policies for common toolchains under `Sandboxer::Preset`. Merge one into your policy rather than enumerating paths manually:
+
+```crystal
+# Homebrew on Apple Silicon
+policy = my_policy.merge(Sandboxer::Preset::Brew::MACOS_ARM)
+
+# Homebrew on Intel macOS
+policy = my_policy.merge(Sandboxer::Preset::Brew::MACOS_INTEL)
+
+# Homebrew on Linux
+policy = my_policy.merge(Sandboxer::Preset::Brew::LINUX)
+```
+
+Presets only add permissions — they never enable network access or override your `working_dir` unless you merge them in that order intentionally.
+
 ## CLI
 
 > **Note:** The CLI is not yet distributed as a release binary. If you need it today, build from source — see [DEVELOPMENT.md](./DEVELOPMENT.md). A release workflow is planned.
@@ -102,8 +136,14 @@ The CLI will supports the following subcommands:
 # Run a command inside a sandbox
 sandboxer run --policy policy.json -- command [args...]
 
+# Run a brew-installed command
+sandboxer run --policy policy.json --add brew -- brew list
+
 # Print the native invocation without executing
 sandboxer inspect --policy policy.json [--platform linux|macos]
+
+# Preview the effect of a preset without executing
+sandboxer inspect --policy policy.json --add brew [--platform linux|macos]
 
 # Check which sandbox runners are available on this host
 sandboxer check

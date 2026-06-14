@@ -79,9 +79,10 @@ graph TD
     ERR["error.cr\nError"]
     BW["bwrap.cr\nBwrap"]
     SE["macos_sandbox_exec.cr\nSandboxExec"]
+    BR["presets/brew.cr\nPreset::Brew"]
 
     CLI -->|requires| LIB
-    LIB -->|requires| ERR & RES & POL & RUN & BW & SE
+    LIB -->|requires| ERR & RES & POL & RUN & BW & SE & BR
 ```
 
 The library entry point (`sandboxer.cr`) and the CLI entry point (`sandboxer_cli.cr`) are intentionally separate files. Users who `require "sandboxer"` get the library with no CLI code. The CLI requires the library and adds the `Sandboxer::CLI` module on top.
@@ -107,15 +108,35 @@ Policies can be constructed programmatically via the `build` class method or loa
 
 ```crystal
 # Programmatic
-policy = Sandboxer::Policy.build do |p|
-  p.read_only "/usr/share/myapp"
-  p.read_write "/tmp/workspace"
-  p.allow_network = false
+policy = Sandboxer::Policy.build do |policy|
+  policy.read_only "/usr/share/myapp"
+  policy.read_write "/tmp/workspace"
+  policy.allow_network = false
 end
 
 # From file
 policy = Sandboxer::Policy.from_json(File.read("policy.json"))
 ```
+
+**Merging policies.** `Policy#merge(other)` returns a new `Policy` that combines `self` and `other`. Neither original is modified. Merge rules by field type:
+
+|Field type                           |Rule                                      |
+|-------------------------------------|------------------------------------------|
+|Array fields (`*_paths`, `unset_env`)|Union, duplicates removed, order preserved|
+|`allow_network`                      |`true` if either is true (OR)             |
+|`new_session`                        |`true` if either is true (OR — safer)     |
+|`working_dir`                        |`other` wins if set, else `self`          |
+|`env` hash                           |Merged; `other` wins on key collision     |
+
+Merge is the intended composition mechanism — build small, focused policies and combine them rather than constructing one large policy per use case.
+
+**Presets.** `Sandboxer::Preset` contains pre-built `Policy` constants for common toolchains. Each preset is a normal `Policy` object and composes via `merge`:
+
+```crystal
+policy = my_policy.merge(Sandboxer::Preset::Brew::MACOS_ARM)
+```
+
+Preset files live in `src/sandboxer/presets/`. Adding a new preset means adding a file there, requiring it in `sandboxer.cr`, and adding specs. No runner code changes.
 
 ### The Runner abstraction
 
