@@ -81,7 +81,8 @@ jobs:
       # This step does not fail CI — bwrap namespace creation is blocked
       # on some runners (GH Actions). A warning is emitted when it fails
       # as a reminder that bwrap integration testing needs a bare-metal
-      # Linux host or VM. See: https://github.com/nogginly/sandboxer.cr/issues
+      # Linux host or VM.
+      # See: https://github.com/nogginly/sandboxer.cr/issues/5
       - name: Run sandboxed command via bwrap (Linux)
         if: ${{ runner.os == 'Linux' }}
         run: |
