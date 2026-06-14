@@ -1,128 +1,346 @@
 require "spec"
-require "../src/sandboxer_cli"
+require "../src/sandboxer"
 
-describe Sandboxer::CLI do
-  # Helper: run the CLI with a given argv, return exit code.
-  # We call CLI.run directly rather than spawning a subprocess so
-  # the specs stay fast and don't require a compiled binary.
+# ── Policy ────────────────────────────────────────────────────────────────────
 
-  describe "routing" do
-    it "returns 0 for 'version'" do
-      Sandboxer::CLI.run(["version"]).should eq(0)
+describe Sandboxer::Policy do
+  describe ".new" do
+    it "defaults to empty path lists" do
+      policy = Sandboxer::Policy.new
+      policy.read_only_paths.should be_empty
+      policy.read_write_paths.should be_empty
+      policy.tmpfs_paths.should be_empty
+      policy.unset_env.should be_empty
+      policy.env.should be_empty
     end
 
-    it "returns 0 for '--version'" do
-      Sandboxer::CLI.run(["--version"]).should eq(0)
+    it "defaults allow_network to false" do
+      Sandboxer::Policy.new.allow_network?.should be_false
     end
 
-    it "returns 0 for 'help'" do
-      Sandboxer::CLI.run(["help"]).should eq(0)
+    it "defaults new_session to true" do
+      Sandboxer::Policy.new.new_session?.should be_true
     end
 
-    it "returns 0 for '--help'" do
-      Sandboxer::CLI.run(["--help"]).should eq(0)
-    end
-
-    it "returns 1 for an unknown subcommand" do
-      Sandboxer::CLI.run(["bogus"]).should eq(1)
-    end
-
-    it "returns 1 with empty argv" do
-      # empty argv falls through to help, which returns 0
-      Sandboxer::CLI.run([] of String).should eq(0)
+    it "defaults working_dir to nil" do
+      Sandboxer::Policy.new.working_dir.should be_nil
     end
   end
 
-  describe "sandbox check" do
-    it "exits 0 when at least one runner is available" do
-      # On any supported platform at least one runner should be found.
-      # This test will be skipped on unsupported platforms.
-      result = Sandboxer::CLI.run(["check"])
-      result.should be_a(Int32)
+  describe ".build" do
+    it "yields a policy and returns it configured" do
+      policy = Sandboxer::Policy.build do |p|
+        p.read_only "/usr/share"
+        p.read_write "/tmp/work"
+        p.tmpfs "/tmp/scratch"
+        p.allow_network = true
+        p.working_dir = "/tmp/work"
+        p.env["FOO"] = "bar"
+      end
+      policy.read_only_paths.should eq(["/usr/share"])
+      policy.read_write_paths.should eq(["/tmp/work"])
+      policy.tmpfs_paths.should eq(["/tmp/scratch"])
+      policy.allow_network?.should be_true
+      policy.working_dir.should eq("/tmp/work")
+      policy.env["FOO"].should eq("bar")
     end
   end
 
-  describe "sandbox run" do
-    it "returns 1 when '--' separator is missing" do
-      result = Sandboxer::CLI.run(["run", "--policy", "policy.json"])
-      result.should eq(1)
-    end
-
-    it "returns 1 when no command follows '--'" do
-      result = Sandboxer::CLI.run(["run", "--"])
-      result.should eq(1)
-    end
-
-    it "returns 1 when the policy file does not exist" do
-      result = Sandboxer::CLI.run(["run", "--policy", "/nonexistent/policy.json", "--", "echo", "hi"])
-      result.should eq(1)
-    end
-
-    it "returns 1 for invalid JSON in a policy file" do
-      File.tempfile("bad_policy_", ".json") do |f|
-        f.print("{ this is not json }")
-        f.flush
-
-        result = Sandboxer::CLI.run(["run", "--policy", f.path, "--", "echo", "hi"])
-        result.should eq(1)
+  describe "#read_only / #read_write / #tmpfs" do
+    it "accepts multiple paths in one call" do
+      policy = Sandboxer::Policy.build do |p|
+        p.read_only "/a", "/b"
+        p.read_write "/c", "/d"
+        p.tmpfs "/e", "/f"
       end
-    end
-
-    it "returns 1 for an unknown preset name" do
-      result = Sandboxer::CLI.run(["run", "--add", "bogus", "--", "echo", "hi"])
-      result.should eq(1)
+      policy.read_only_paths.should eq(["/a", "/b"])
+      policy.read_write_paths.should eq(["/c", "/d"])
+      policy.tmpfs_paths.should eq(["/e", "/f"])
     end
   end
 
-  describe "sandbox inspect" do
-    it "returns 0 for linux platform with a valid policy" do
-      File.tempfile("policy_", ".json") do |f|
-        f.print(%({"read_only_paths": ["/usr/share"], "allow_network": false}))
-        f.flush
+  describe ".from_json / #to_json" do
+    it "round-trips a policy through JSON" do
+      json = %({"read_only_paths":["/usr/share"],"read_write_paths":["/tmp"],"tmpfs_paths":[],"allow_network":false,"working_dir":null,"env":{},"unset_env":[],"new_session":true})
+      policy = Sandboxer::Policy.from_json(json)
+      policy.read_only_paths.should eq(["/usr/share"])
+      policy.read_write_paths.should eq(["/tmp"])
+      policy.allow_network?.should be_false
+    end
 
-        result = Sandboxer::CLI.run(["inspect", "--policy", f.path, "--platform", "linux"])
-        result.should eq(0)
+    it "deserialises allow_network from JSON" do
+      policy = Sandboxer::Policy.from_json(%({"allow_network":true}))
+      policy.allow_network?.should be_true
+    end
+  end
+
+  describe "#merge" do
+    it "unions path arrays without duplicates" do
+      a = Sandboxer::Policy.build { |p| p.read_only "/usr/share", "/etc/myapp" }
+      b = Sandboxer::Policy.build { |p| p.read_only "/etc/myapp", "/opt/data" }
+      a.merge(b).read_only_paths.should eq(["/usr/share", "/etc/myapp", "/opt/data"])
+    end
+
+    it "unions all path list types" do
+      a = Sandboxer::Policy.build { |p| p.read_write "/tmp/a"; p.tmpfs "/run/a" }
+      b = Sandboxer::Policy.build { |p| p.read_write "/tmp/b"; p.tmpfs "/run/b" }
+      merged = a.merge(b)
+      merged.read_write_paths.should eq(["/tmp/a", "/tmp/b"])
+      merged.tmpfs_paths.should eq(["/run/a", "/run/b"])
+    end
+
+    it "allow_network is true if either is true" do
+      a = Sandboxer::Policy.build { |p| p.allow_network = false }
+      b = Sandboxer::Policy.build { |p| p.allow_network = true }
+      a.merge(b).allow_network?.should be_true
+      b.merge(a).allow_network?.should be_true
+      a.merge(a).allow_network?.should be_false
+    end
+
+    it "new_session is true if either is true" do
+      a = Sandboxer::Policy.new # default true
+      b = Sandboxer::Policy.build { |p| p.new_session = false }
+      a.merge(b).new_session?.should be_true
+      b.merge(a).new_session?.should be_true
+      b.merge(b).new_session?.should be_false
+    end
+
+    it "other working_dir wins when set; falls back to self" do
+      a = Sandboxer::Policy.build { |p| p.working_dir = "/tmp/a" }
+      b = Sandboxer::Policy.build { |p| p.working_dir = "/tmp/b" }
+      c = Sandboxer::Policy.new
+      a.merge(b).working_dir.should eq("/tmp/b")
+      a.merge(c).working_dir.should eq("/tmp/a")
+      c.merge(c).working_dir.should be_nil
+    end
+
+    it "merges env hashes with other winning on collision" do
+      a = Sandboxer::Policy.build { |p| p.env["FOO"] = "a"; p.env["BAR"] = "shared" }
+      b = Sandboxer::Policy.build { |p| p.env["BAR"] = "b"; p.env["BAZ"] = "b" }
+      merged = a.merge(b)
+      merged.env["FOO"].should eq("a")
+      merged.env["BAR"].should eq("b")
+      merged.env["BAZ"].should eq("b")
+    end
+
+    it "unions unset_env without duplicates" do
+      a = Sandboxer::Policy.build { |p| p.unset_env.concat(["SECRET", "TOKEN"]) }
+      b = Sandboxer::Policy.build { |p| p.unset_env.concat(["TOKEN", "DEBUG"]) }
+      a.merge(b).unset_env.should eq(["SECRET", "TOKEN", "DEBUG"])
+    end
+
+    it "returns a new Policy leaving originals unchanged" do
+      a = Sandboxer::Policy.build { |p| p.read_only "/usr/share" }
+      b = Sandboxer::Policy.build { |p| p.read_only "/opt/data" }
+      a.merge(b)
+      a.read_only_paths.should eq(["/usr/share"])
+      b.read_only_paths.should eq(["/opt/data"])
+    end
+  end
+end
+
+# ── Bwrap ─────────────────────────────────────────────────────────────────────
+
+describe Sandboxer::Bwrap do
+  runner = Sandboxer::Bwrap.new
+  base_policy = Sandboxer::Policy.new
+
+  describe "#build_argv" do
+    it "starts with the bwrap binary" do
+      runner.build_argv(["echo", "hi"], base_policy).first.should eq("bwrap")
+    end
+
+    it "clears environment and passes through defaults" do
+      argv = runner.build_argv(["echo"], base_policy)
+      argv.should contain("--clearenv")
+    end
+
+    it "mounts proc and dev" do
+      argv = runner.build_argv(["echo"], base_policy)
+      argv.should contain("--proc")
+      argv.should contain("--dev")
+    end
+
+    it "always unshares PID namespace" do
+      runner.build_argv(["echo"], base_policy).should contain("--unshare-pid")
+    end
+
+    it "denies network by default" do
+      runner.build_argv(["echo"], base_policy).should contain("--unshare-net")
+    end
+
+    it "allows network when policy says so" do
+      policy = Sandboxer::Policy.build { |p| p.allow_network = true }
+      argv = runner.build_argv(["echo"], policy)
+      argv.should_not contain("--unshare-net")
+      argv.should contain("--ro-bind-try")
+    end
+
+    it "binds read-only paths with --ro-bind" do
+      policy = Sandboxer::Policy.build { |p| p.read_only "/usr/share" }
+      argv = runner.build_argv(["echo"], policy)
+      i = argv.index("--ro-bind")
+      i.should_not be_nil
+      argv[(i.not_nil! + 1)..(i.not_nil! + 2)].should eq(["/usr/share", "/usr/share"])
+    end
+
+    it "binds read-write paths with --bind" do
+      policy = Sandboxer::Policy.build { |p| p.read_write "/tmp/work" }
+      argv = runner.build_argv(["echo"], policy)
+      i = argv.index("--bind")
+      i.should_not be_nil
+      argv[(i.not_nil! + 1)..(i.not_nil! + 2)].should eq(["/tmp/work", "/tmp/work"])
+    end
+
+    it "mounts tmpfs paths with --tmpfs" do
+      policy = Sandboxer::Policy.build { |p| p.tmpfs "/tmp/scratch" }
+      argv = runner.build_argv(["echo"], policy)
+      i = argv.index("--tmpfs")
+      i.should_not be_nil
+      argv[i.not_nil! + 1].should eq("/tmp/scratch")
+    end
+
+    it "sets working directory with --chdir" do
+      policy = Sandboxer::Policy.build { |p| p.working_dir = "/tmp/work" }
+      argv = runner.build_argv(["echo"], policy)
+      i = argv.index("--chdir")
+      i.should_not be_nil
+      argv[i.not_nil! + 1].should eq("/tmp/work")
+    end
+
+    it "adds --new-session when new_session is true" do
+      runner.build_argv(["echo"], base_policy).should contain("--new-session")
+    end
+
+    it "omits --new-session when new_session is false" do
+      policy = Sandboxer::Policy.build { |p| p.new_session = false }
+      runner.build_argv(["echo"], policy).should_not contain("--new-session")
+    end
+
+    it "appends -- and the command at the end" do
+      argv = runner.build_argv(["ls", "-la"], base_policy)
+      sep = argv.index("--").not_nil!
+      argv[(sep + 1)..].should eq(["ls", "-la"])
+    end
+
+    it "passes through policy env vars" do
+      policy = Sandboxer::Policy.build { |p| p.env["MY_VAR"] = "hello" }
+      argv = runner.build_argv(["echo"], policy)
+      i = argv.index("MY_VAR")
+      i.should_not be_nil
+      argv[i.not_nil! + 1].should eq("hello")
+    end
+
+    it "adds --unsetenv for unset_env entries" do
+      policy = Sandboxer::Policy.build { |p| p.unset_env << "SECRET" }
+      argv = runner.build_argv(["echo"], policy)
+      i = argv.index("--unsetenv")
+      i.should_not be_nil
+      argv[i.not_nil! + 1].should eq("SECRET")
+    end
+  end
+end
+
+# ── SandboxExec ───────────────────────────────────────────────────────────────
+
+describe Sandboxer::SandboxExec do
+  runner = Sandboxer::SandboxExec.new
+  base_policy = Sandboxer::Policy.new
+
+  describe "#generate_profile" do
+    it "starts with version and deny default" do
+      profile = runner.generate_profile(base_policy)
+      profile.should contain("(version 1)")
+      profile.should contain("(deny default)")
+    end
+
+    it "includes the BASELINE" do
+      profile = runner.generate_profile(base_policy)
+      profile.should contain("(allow process-fork)")
+      profile.should contain("(allow mach-lookup)")
+      profile.should contain("(allow sysctl-read)")
+    end
+
+    it "grants read-only access to read_only_paths" do
+      policy = Sandboxer::Policy.build { |p| p.read_only "/usr/share/myapp" }
+      profile = runner.generate_profile(policy)
+      profile.should contain("(allow file-read*")
+      profile.should contain("/usr/share/myapp")
+    end
+
+    it "grants read-write access to read_write_paths" do
+      policy = Sandboxer::Policy.build { |p| p.read_write "/tmp/work" }
+      profile = runner.generate_profile(policy)
+      profile.should contain("(allow file-read* file-write*")
+      profile.should contain("/tmp/work")
+    end
+
+    it "grants read-write access to tmpfs_paths (no tmpfs on macOS)" do
+      policy = Sandboxer::Policy.build { |p| p.tmpfs "/tmp/scratch" }
+      profile = runner.generate_profile(policy)
+      profile.should contain("(allow file-read* file-write*")
+      profile.should contain("/tmp/scratch")
+    end
+
+    it "expands relative paths to absolute" do
+      policy = Sandboxer::Policy.build { |p| p.read_only "." }
+      profile = runner.generate_profile(policy)
+      profile.should_not contain("\".\"/")
+      profile.should contain(File.expand_path("."))
+    end
+
+    it "grants network access when allow_network is true" do
+      policy = Sandboxer::Policy.build { |p| p.allow_network = true }
+      profile = runner.generate_profile(policy)
+      profile.should contain("(allow network-outbound)")
+    end
+
+    it "does not grant network access by default" do
+      runner.generate_profile(base_policy).should_not contain("network-outbound")
+    end
+
+    it "adds extra rw grant for working_dir not covered by path lists" do
+      policy = Sandboxer::Policy.build { |p| p.working_dir = "/tmp/myapp" }
+      profile = runner.generate_profile(policy)
+      profile.should contain("/tmp/myapp")
+    end
+
+    it "does not duplicate working_dir grant when already in read_write_paths" do
+      policy = Sandboxer::Policy.build do |p|
+        p.read_write "/tmp/workspace"
+        p.working_dir = "/tmp/workspace"
       end
+      profile = runner.generate_profile(policy)
+      profile.scan("/tmp/workspace").size.should eq(1)
     end
+  end
+end
 
-    it "returns 0 for macos platform with a valid policy" do
-      File.tempfile("policy_", ".json") do |f|
-        f.print(%({"read_only_paths": ["/usr/share"], "allow_network": false}))
-        f.flush
+# ── Preset::Brew ──────────────────────────────────────────────────────────────
 
-        result = Sandboxer::CLI.run(["inspect", "--policy", f.path, "--platform", "macos"])
-        result.should eq(0)
-      end
-    end
+describe Sandboxer::Preset::Brew do
+  it "MACOS_ARM grants read-only access to /opt/homebrew" do
+    Sandboxer::Preset::Brew::MACOS_ARM.read_only_paths.should contain("/opt/homebrew")
+  end
 
-    it "returns 1 for an unknown platform" do
-      File.tempfile("policy_", ".json") do |f|
-        f.print("{}")
-        f.flush
+  it "MACOS_INTEL grants read-only access to /usr/local" do
+    Sandboxer::Preset::Brew::MACOS_INTEL.read_only_paths.should contain("/usr/local")
+  end
 
-        result = Sandboxer::CLI.run(["inspect", "--policy", f.path, "--platform", "windows"])
-        result.should eq(1)
-      end
-    end
+  it "LINUX grants read-only access to /home/linuxbrew/.linuxbrew" do
+    Sandboxer::Preset::Brew::LINUX.read_only_paths.should contain("/home/linuxbrew/.linuxbrew")
+  end
 
-    it "uses an empty policy when no --policy is given" do
-      result = Sandboxer::CLI.run(["inspect", "--platform", "linux"])
-      result.should eq(0)
-    end
+  it "merges brew preset into a user policy" do
+    policy = Sandboxer::Policy.build { |p| p.read_write "/tmp/work" }
+    merged = policy.merge(Sandboxer::Preset::Brew::MACOS_ARM)
+    merged.read_write_paths.should contain("/tmp/work")
+    merged.read_only_paths.should contain("/opt/homebrew")
+  end
 
-    it "returns 0 when --add brew is given with linux platform" do
-      result = Sandboxer::CLI.run(["inspect", "--add", "brew", "--platform", "linux"])
-      result.should eq(0)
-    end
-
-    it "returns 0 when --add brew is given with macos platform" do
-      result = Sandboxer::CLI.run(["inspect", "--add", "brew", "--platform", "macos"])
-      result.should eq(0)
-    end
-
-    it "returns 1 for an unknown preset name" do
-      result = Sandboxer::CLI.run(["inspect", "--add", "bogus", "--platform", "linux"])
-      result.should eq(1)
-    end
+  it "brew presets do not enable network by default" do
+    Sandboxer::Preset::Brew::MACOS_ARM.allow_network?.should be_false
+    Sandboxer::Preset::Brew::MACOS_INTEL.allow_network?.should be_false
+    Sandboxer::Preset::Brew::LINUX.allow_network?.should be_false
   end
 end
