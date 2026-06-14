@@ -93,5 +93,26 @@ module Sandboxer
       @tmpfs_paths.concat(paths.to_a)
       self
     end
+
+    # Returns a new Policy that is the union of self and *other*.
+    #
+    # Merge rules:
+    # - Arrays (paths, unset_env): union, duplicates removed, order preserved.
+    # - allow_network: true if either policy allows it (OR semantics).
+    # - new_session: true if either policy requires it (OR semantics — safer).
+    # - working_dir: *other* wins if set, otherwise self is kept.
+    # - env: merged; *other* wins on key collision.
+    def merge(other : Policy) : Policy
+      merged = Policy.new
+      merged.read_only_paths = (@read_only_paths + other.read_only_paths).uniq
+      merged.read_write_paths = (@read_write_paths + other.read_write_paths).uniq
+      merged.tmpfs_paths = (@tmpfs_paths + other.tmpfs_paths).uniq
+      merged.unset_env = (@unset_env + other.unset_env).uniq
+      merged.allow_network = @allow_network || other.allow_network?
+      merged.new_session = @new_session || other.new_session?
+      merged.working_dir = other.working_dir || @working_dir
+      merged.env = @env.merge(other.env)
+      merged
+    end
   end
 end

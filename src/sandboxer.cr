@@ -4,6 +4,7 @@ require "./sandboxer/policy"
 require "./sandboxer/runner"
 require "./sandboxer/linux_bwrap"
 require "./sandboxer/macos_sandbox_exec"
+require "./sandboxer/presets/*"
 
 # Sandbox provides a platform-agnostic API for running shell commands
 # inside a configurable sandbox.
