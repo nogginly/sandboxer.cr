@@ -1,13 +1,13 @@
 # Sandboxer
 
-> **Very much in development.**
+> **Usable on macOS and Linux. Still in development to add Windows support. **
 
 A Crystal shard for running shell commands inside a platform-native sandbox, with a configurable access policy.
 
-|Platform|Mechanism                                |Status    |
-|--------|-----------------------------------------|----------|
-|macOS   |`sandbox-exec` + SBPL profiles (Seatbelt)|✔️ Runs    |
-|Linux   |`bwrap` (Bubblewrap) user namespaces     |❗️ Untested|
+|Platform|Mechanism                                |Status  |
+|--------|-----------------------------------------|--------|
+|macOS   |`sandbox-exec` + SBPL profiles (Seatbelt)|✔️ Tested|
+|Linux   |`bwrap` (Bubblewrap) user namespaces     |✔️ Tested|
 
 ## Usage as a shard
 

@@ -165,7 +165,7 @@ Exit codes follow Unix conventions. When the sandboxed process exits via signal 
 
 **Process isolation.** `--unshare-pid` creates a new PID namespace; the sandboxed process sees itself as PID 1 and cannot observe host processes. `--new-session` calls `setsid()`, detaching from the controlling terminal.
 
-**No root required.** bwrap uses unprivileged Linux user namespaces. Some hardened kernels disable these (`kernel.unprivileged_userns_clone=0`, common on older Debian derivatives). Call `available?` before use and surface a clear error if it returns false.
+**No root required.** bwrap uses unprivileged Linux user namespaces. Some hardened kernels disable these (`kernel.unprivileged_userns_clone=0`, common on older Debian derivatives). Ubuntu 23.10+ additionally restricts them via AppArmor (`kernel.apparmor_restrict_unprivileged_userns=1`). See [Known limitations](#known-limitations) for remediation options. Call `available?` before use and surface a clear error if it returns false.
 
 `build_argv` is public so callers can inspect or log the full command without executing it. The `inspect` subcommand in the CLI uses this.
 
@@ -294,6 +294,12 @@ No other files need to change. The `Policy` is already complete — the new runn
 **tmpfs on macOS.** `tmpfs_paths` has different semantics on macOS than on Linux. Documented in-code, but callers should be aware.
 
 **No syscall filtering on Linux.** `bwrap` has no built-in syscall filter. Adding one requires compiling a seccomp-bpf filter and passing it via `--seccomp <fd>`. The `Policy` has no field for this yet — a `denied_syscalls` or `seccomp_profile` field is a natural extension.
+
+**Linux kernel requirements.** bwrap requires unprivileged user namespaces. Two kernel-level settings can block this:
+- `kernel.unprivileged_userns_clone=0` — common on older Debian/Ubuntu derivatives; set to `1` to enable.
+- `kernel.apparmor_restrict_unprivileged_userns=1` — default on Ubuntu 23.10+; set to `0` to allow bwrap. Alternatively, install an AppArmor profile that grants `userns` to the `bwrap` binary specifically.
+
+Call `available?` before use and surface a clear error if it returns false.
 
 **Windows.** Not implemented. The right approach is a small native shim (`sandboxer-shim.exe`) that creates an AppContainer and exec's an arbitrary command, invoked by a `Sandboxer::AppContainer` runner subclass. See `ARCHITECTURE.md` for the design discussion.
 
