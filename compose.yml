@@ -1,0 +1,32 @@
+# This Compose file sets up a Crystal development environment.
+# It is specifically configured to allow the development of an application that
+# utilizes 'bubblewrap' (bwrap) to run other applications in a sandbox.
+#
+# 1. Run `podman compose up -d` to start the service and detach from it.
+# 2. Run `podman compose exec dev /bin/bash`
+services:
+  dev:
+    image: crystallang/crystal
+    # Privileged mode is required because bubblewrap needs access to kernel features
+    # like user namespaces and mount operations to create sandboxes.
+    privileged: true
+
+    # Keep the container running interactively
+    stdin_open: true # Keeps STDIN open (equivalent of -i)
+    tty: true # Allocate a pseudo-TTY (equivalent of -t)
+
+    # Pass through host terminal settings to ensure consistent UI/colors in the shell
+    environment:
+      - TERM=${TERM:-xterm-256color}
+      - LANG=${LANG:-en_US.UTF-8}
+      - COLORTERM=${COLORTERM:-truecolor}
+
+    volumes:
+      # Pass host terminfo directory to avoid installing packages inside the image
+      # while ensuring terminal capabilities are correctly recognized.
+      - /usr/share/terminfo:/usr/share/terminfo:ro
+      # Map a local temporary folder for persistent data or workspace files
+      - ./tmp:/data:rw
+
+    # Start into a bash shell for interactive development
+    command: /bin/bash
