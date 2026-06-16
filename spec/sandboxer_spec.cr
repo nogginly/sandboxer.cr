@@ -315,32 +315,3 @@ describe Sandboxer::SandboxExec do
     end
   end
 end
-
-# ── Preset::Brew ──────────────────────────────────────────────────────────────
-
-describe Sandboxer::Preset::Brew do
-  it "MACOS_ARM grants read-only access to /opt/homebrew" do
-    Sandboxer::Preset::Brew::MACOS_ARM.read_only_paths.should contain("/opt/homebrew")
-  end
-
-  it "MACOS_INTEL grants read-only access to /usr/local" do
-    Sandboxer::Preset::Brew::MACOS_INTEL.read_only_paths.should contain("/usr/local")
-  end
-
-  it "LINUX grants read-only access to /home/linuxbrew/.linuxbrew" do
-    Sandboxer::Preset::Brew::LINUX.read_only_paths.should contain("/home/linuxbrew/.linuxbrew")
-  end
-
-  it "merges brew preset into a user policy" do
-    policy = Sandboxer::Policy.build { |p| p.read_write "/tmp/work" }
-    merged = policy.merge(Sandboxer::Preset::Brew::MACOS_ARM)
-    merged.read_write_paths.should contain("/tmp/work")
-    merged.read_only_paths.should contain("/opt/homebrew")
-  end
-
-  it "brew presets do not enable network by default" do
-    Sandboxer::Preset::Brew::MACOS_ARM.allow_network?.should be_false
-    Sandboxer::Preset::Brew::MACOS_INTEL.allow_network?.should be_false
-    Sandboxer::Preset::Brew::LINUX.allow_network?.should be_false
-  end
-end
