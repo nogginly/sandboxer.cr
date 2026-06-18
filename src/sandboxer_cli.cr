@@ -241,20 +241,24 @@ module Sandboxer
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
+    private macro platform_preset(name)
+      {% if flag?(:darwin) && flag?(:aarch64) %}
+        Preset::{{name.titleize.id}}::MACOS_ARM
+      {% elsif flag?(:darwin) %}
+        Preset::{{name.titleize.id}}::MACOS_INTEL
+      {% elsif flag?(:linux) %}
+        Preset::{{name.titleize.id}}::LINUX
+      {% else %}
+        nil
+      {% end %}
+    end
+
     # Maps a preset name to the appropriate Policy for the current platform.
     # Returns nil for unknown names.
     private def self.resolve_preset(name : String) : Policy?
       case name
       when "brew"
-        {% if flag?(:darwin) && flag?(:aarch64) %}
-          Preset::Brew::MACOS_ARM
-        {% elsif flag?(:darwin) %}
-          Preset::Brew::MACOS_INTEL
-        {% elsif flag?(:linux) %}
-          Preset::Brew::LINUX
-        {% else %}
-          nil
-        {% end %}
+        platform_preset("brew")
       else
         nil
       end
