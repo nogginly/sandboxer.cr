@@ -41,9 +41,12 @@ module Sandboxer
         (subpath "/System/Library")
         (subpath "/System/Volumes/Preboot/Cryptexes")
         (subpath "/private/var/db/dyld")
-        (literal "/dev/null")
         (literal "/dev/random")
         (literal "/dev/urandom"))
+
+      ; --- common to write to `/dev/null` ---
+      (allow file-read* file-write*
+        (literal "/dev/null"))
 
       ; --- stat/readdir: needed broadly ---
       (allow file-read-metadata)
@@ -54,6 +57,19 @@ module Sandboxer
       ;   from (subpath "/") which would be a blanket allow on the
       ;   entire filesystem.
       (allow file-read-data (literal "/"))
+
+      ; --- Darwin/CoreFoundation plumbing ---
+      ; Hit by nearly any CF- or Foundation-linked process, not just one
+      ; toolchain. Harmless if denied (caller falls back), but noisy.
+      (allow ipc-posix-shm-read-data (literal "apple.shm.notification_center"))
+      (allow file-read-data (literal "/Library/Preferences/Logging/com.apple.diagnosticd.filter.plist"))
+      (allow file-read-data (literal "/dev/autofs_nowait"))
+
+      ; --- syslog ---
+      ; syslog() connects to a Unix-domain socket, which Seatbelt classes
+      ; as network-outbound — but it's local logging, not network access.
+      ; Allow unconditionally rather than coupling it to allow_network.
+      (allow network-outbound (literal "/private/var/run/syslog"))
 
       SBPL
 
@@ -83,9 +99,11 @@ module Sandboxer
     # Returns the SBPL profile string for *policy*.
     # Useful for inspection, logging, or writing to disk without executing.
     #
-    # All paths are expanded to absolute before being written to the profile.
-    # SBPL evaluates paths against the real filesystem and does not resolve
-    # relative paths — passing "./" would silently match nothing.
+    # All paths are resolved to their real, symlink-free form before being
+    # written to the profile (see #resolve_path) — SBPL matches against the
+    # path the kernel actually resolves to, not the string the caller wrote.
+    # "./" or "~/.rubies" pointing through a symlink would silently match
+    # nothing otherwise.
     def generate_profile(policy : Policy) : String
       String.build do |str|
         str << "(version 1)\n"
@@ -93,11 +111,18 @@ module Sandboxer
         str << BASELINE
         str << "\n"
 
+        # CoreFoundation reads this per-user file for legacy text encoding.
+        # Harmless if denied, but it's $HOME-dependent so it can't live in
+        # the static BASELINE constant.
+        if home = ENV["HOME"]?
+          str << "(allow file-read-data (literal #{File.join(home, ".CFUserTextEncoding").inspect}))\n\n"
+        end
+
         # ── Read-only paths ───────────────────────────────────────────────
         unless policy.read_only_paths.empty?
           str << "(allow file-read*\n"
           policy.read_only_paths.each do |path|
-            str << "  (subpath #{File.expand_path(path).inspect})\n"
+            str << "  (subpath #{resolve_path(path).inspect})\n"
           end
           str << ")\n\n"
         end
@@ -106,7 +131,7 @@ module Sandboxer
         unless policy.read_write_paths.empty?
           str << "(allow file-read* file-write*\n"
           policy.read_write_paths.each do |path|
-            str << "  (subpath #{File.expand_path(path).inspect})\n"
+            str << "  (subpath #{resolve_path(path).inspect})\n"
           end
           str << ")\n\n"
         end
@@ -118,7 +143,7 @@ module Sandboxer
           str << "; tmpfs: no tmpfs on macOS — granting rw to existing paths\n"
           str << "(allow file-read* file-write*\n"
           policy.tmpfs_paths.each do |path|
-            str << "  (subpath #{File.expand_path(path).inspect})\n"
+            str << "  (subpath #{resolve_path(path).inspect})\n"
           end
           str << ")\n\n"
         end
@@ -126,10 +151,10 @@ module Sandboxer
         # ── Working directory ─────────────────────────────────────────────
         # Ensure it's accessible even if not covered by the path lists above.
         if wd = policy.working_dir
-          abs_wd = File.expand_path(wd)
+          abs_wd = resolve_path(wd)
           all_paths = (policy.read_write_paths +
                        policy.read_only_paths +
-                       policy.tmpfs_paths).map { |path| File.expand_path(path) }
+                       policy.tmpfs_paths).map { |path| resolve_path(path) }
           unless all_paths.any? { |path| abs_wd.starts_with?(path) }
             str << "; working_dir not covered by path lists — granting rw\n"
             str << "(allow file-read* file-write* (subpath #{abs_wd.inspect}))\n\n"
@@ -143,6 +168,22 @@ module Sandboxer
           str << "(allow network-bind)\n"
         end
       end
+    end
+
+    # Resolves *path* to its real, symlink-free absolute form.
+    #
+    # SBPL's `subpath`/`literal` rules are matched against the path the
+    # kernel resolves to after following symlinks — not the string the
+    # caller wrote. `/tmp` is itself a symlink to `/private/tmp` on macOS,
+    # so even the common `tmpfs("/tmp")` case depends on this.
+    #
+    # Falls back to `File.expand_path` when the path doesn't exist yet —
+    # `realpath` raises in that case, but `read_write_paths` may legitimately
+    # name a path the sandboxed process will create.
+    private def resolve_path(path : String) : String
+      File.realpath(path)
+    rescue File::Error
+      File.expand_path(path)
     end
   end
 end

@@ -259,6 +259,7 @@ describe Sandboxer::SandboxExec do
       profile.should contain("(allow process-fork)")
       profile.should contain("(allow mach-lookup)")
       profile.should contain("(allow sysctl-read)")
+      profile.should contain("/private/var/run/syslog")
     end
 
     it "grants read-only access to read_only_paths" do
@@ -289,14 +290,43 @@ describe Sandboxer::SandboxExec do
       profile.should contain(File.expand_path("."))
     end
 
+    it "resolves symlinked paths to their real target, not the symlink" do
+      # Built generically with a throwaway symlink rather than asserting
+      # the macOS-specific /tmp -> /private/tmp mapping, since this spec
+      # also runs under the Linux CI job where that symlink doesn't exist.
+      real_dir = File.join(Dir.tempdir, "sbx_real_#{Random::Secure.hex(4)}")
+      link_path = File.join(Dir.tempdir, "sbx_link_#{Random::Secure.hex(4)}")
+      Dir.mkdir(real_dir)
+      File.symlink(real_dir, link_path)
+
+      begin
+        policy = Sandboxer::Policy.build { |p| p.read_only link_path }
+        profile = runner.generate_profile(policy)
+        profile.should contain(File.realpath(real_dir))
+        profile.should_not contain(link_path)
+      ensure
+        File.delete(link_path)
+        Dir.delete(real_dir)
+      end
+    end
+
+    it "falls back to expand_path for paths that don't exist yet" do
+      policy = Sandboxer::Policy.build { |p| p.read_write "/tmp/sbx_does_not_exist_yet" }
+      profile = runner.generate_profile(policy)
+      profile.should contain("/tmp/sbx_does_not_exist_yet")
+    end
+
     it "grants network access when allow_network is true" do
       policy = Sandboxer::Policy.build { |p| p.allow_network = true }
       profile = runner.generate_profile(policy)
       profile.should contain("(allow network-outbound)")
     end
 
-    it "does not grant network access by default" do
-      runner.generate_profile(base_policy).should_not contain("network-outbound")
+    it "does not grant blanket network access by default" do
+      # BASELINE always allows the syslog socket specifically (local
+      # logging, not network access) — assert the absence of the bare,
+      # unrestricted grant rather than the operation name itself.
+      runner.generate_profile(base_policy).should_not contain("(allow network-outbound)")
     end
 
     it "adds extra rw grant for working_dir not covered by path lists" do
