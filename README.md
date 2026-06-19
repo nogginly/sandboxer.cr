@@ -147,6 +147,31 @@ policy = my_policy.merge(Sandboxer::Preset::Ruby.for_executable("/path/to/ruby")
 
 All Ruby presets include the default per-user gem directory (`~/.gem`). macOS system Ruby is intentionally not covered — its lib paths depend on the active Xcode/CLT toolchain and aren't stable. See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full rationale.
 
+#### Python
+
+Static presets cover known fixed layouts the same way Ruby's do:
+
+```crystal
+policy = my_policy.merge(Sandboxer::Preset::Python::MACOS_ARM_BREW)
+policy = my_policy.merge(Sandboxer::Preset::Python::MACOS_INTEL_BREW)
+policy = my_policy.merge(Sandboxer::Preset::Python::LINUX_SYSTEM)
+policy = my_policy.merge(Sandboxer::Preset::Python::LINUX_BREW)
+```
+
+For version-managed interpreters (`pyenv`, `uv python install`), use `for_executable`, same as Ruby:
+
+```crystal
+policy = my_policy.merge(Sandboxer::Preset::Python.for_executable("/path/to/python3"))
+```
+
+Python also has virtual environments, which `uv` and `python -m venv` both create — typically at `.venv` next to a project's `pyproject.toml`. A venv is a thin directory pointing back at a base interpreter rather than containing a full one, so `for_venv` reads its `pyvenv.cfg`, resolves the base interpreter, and grants access to both:
+
+```crystal
+policy = my_policy.merge(Sandboxer::Preset::Python.for_venv("/path/to/project/.venv"))
+```
+
+`for_venv` is read-only — it covers running a script against an already-resolved environment, not `pip install` / `uv add`. macOS system Python is excluded for the same reason as Ruby's.
+
 ## CLI
 
 > **Note:** The CLI is not yet distributed as a release binary. If you need it today, build from source — see [DEVELOPMENT.md](./DEVELOPMENT.md). A release workflow is planned.
@@ -164,12 +189,19 @@ sandboxer run --policy policy.json --add brew -- brew list
 sandboxer run --ruby $(which ruby) -- ruby script.rb
 sandboxer run --ruby $(rbenv which ruby) -- ruby script.rb
 
+# Run a Python script, deriving the policy from the active python3 binary
+sandboxer run --python $(which python3) -- python3 script.py
+
+# Run a Python script inside a project's virtualenv
+sandboxer run --python-venv .venv -- python3 script.py
+
 # Print the native invocation without executing
 sandboxer inspect --policy policy.json [--platform linux|macos]
 
 # Preview the effect of a preset without executing
 sandboxer inspect --policy policy.json --add brew [--platform linux|macos]
 sandboxer inspect --ruby $(which ruby) [--platform linux|macos]
+sandboxer inspect --python-venv .venv [--platform linux|macos]
 
 # Check which sandbox runners are available on this host
 sandboxer check

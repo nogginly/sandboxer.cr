@@ -47,6 +47,8 @@ module Sandboxer
       allow_network_override = nil
       preset_names = [] of String
       ruby_path = nil
+      python_path = nil
+      venv_path = nil
 
       # Split argv on "--" to separate sandboxer flags from the command.
       sep = argv.index("--")
@@ -87,6 +89,14 @@ module Sandboxer
           ruby_path = path
         end
 
+        opts.on("--python PATH", "Merge a Python preset derived from the given binary path") do |path|
+          python_path = path
+        end
+
+        opts.on("--python-venv PATH", "Merge a Python preset derived from the given virtualenv directory") do |path|
+          venv_path = path
+        end
+
         opts.on("-h", "--help", "Show this help") do
           puts opts
           exit 0
@@ -125,6 +135,29 @@ module Sandboxer
         policy = policy.merge(Preset::Ruby.for_executable(path))
       end
 
+      # Apply Python executable preset.
+      if path = python_path
+        unless File.exists?(path)
+          STDERR.puts "sandboxer run: --python path not found: #{path.inspect}"
+          return 1
+        end
+        policy = policy.merge(Preset::Python.for_executable(path))
+      end
+
+      # Apply Python venv preset.
+      if path = venv_path
+        unless Dir.exists?(path)
+          STDERR.puts "sandboxer run: --python-venv path not found: #{path.inspect}"
+          return 1
+        end
+        begin
+          policy = policy.merge(Preset::Python.for_venv(path))
+        rescue ex : File::Error | KeyError
+          STDERR.puts "sandboxer run: --python-venv #{path.inspect} is not a valid virtualenv: #{ex.message}"
+          return 1
+        end
+      end
+
       # Apply CLI overrides on top of the policy file.
       if override = allow_network_override
         policy.allow_network = override
@@ -156,6 +189,8 @@ module Sandboxer
       platform = detect_platform
       preset_names = [] of String
       ruby_path = nil
+      python_path = nil
+      venv_path = nil
 
       OptionParser.parse(argv) do |opts|
         opts.banner = "Usage: sandboxer inspect [options]"
@@ -174,6 +209,14 @@ module Sandboxer
 
         opts.on("--ruby PATH", "Merge a Ruby preset derived from the given binary path") do |path|
           ruby_path = path
+        end
+
+        opts.on("--python PATH", "Merge a Python preset derived from the given binary path") do |path|
+          python_path = path
+        end
+
+        opts.on("--python-venv PATH", "Merge a Python preset derived from the given virtualenv directory") do |path|
+          venv_path = path
         end
 
         opts.on("-h", "--help", "Show this help") do
@@ -211,6 +254,29 @@ module Sandboxer
           return 1
         end
         policy = policy.merge(Preset::Ruby.for_executable(path))
+      end
+
+      # Apply Python executable preset.
+      if path = python_path
+        unless File.exists?(path)
+          STDERR.puts "sandboxer inspect: --python path not found: #{path.inspect}"
+          return 1
+        end
+        policy = policy.merge(Preset::Python.for_executable(path))
+      end
+
+      # Apply Python venv preset.
+      if path = venv_path
+        unless Dir.exists?(path)
+          STDERR.puts "sandboxer inspect: --python-venv path not found: #{path.inspect}"
+          return 1
+        end
+        begin
+          policy = policy.merge(Preset::Python.for_venv(path))
+        rescue ex : File::Error | KeyError
+          STDERR.puts "sandboxer inspect: --python-venv #{path.inspect} is not a valid virtualenv: #{ex.message}"
+          return 1
+        end
       end
 
       # Dummy command for display; inspect shows structure, not a real execution.
@@ -348,9 +414,12 @@ module Sandboxer
           sandboxer run --policy policy.json --add brew -- brew list
           sandboxer run --ruby $(which ruby) -- ruby script.rb
           sandboxer run --ruby $(rbenv which ruby) -- ruby script.rb
+          sandboxer run --python $(which python3) -- python3 script.py
+          sandboxer run --python-venv .venv -- python3 script.py
           sandboxer inspect --policy policy.json
           sandboxer inspect --policy policy.json --platform macos
           sandboxer inspect --ruby $(which ruby) --platform macos
+          sandboxer inspect --python-venv .venv --platform macos
           sandboxer check
 
         Policy file (JSON):

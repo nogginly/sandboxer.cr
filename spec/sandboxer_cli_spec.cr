@@ -73,6 +73,26 @@ describe Sandboxer::CLI do
       result.should eq(1)
     end
 
+    it "returns 1 when --python path does not exist" do
+      result = Sandboxer::CLI.run(["run", "--python", "/nonexistent/python3", "--", "echo", "hi"])
+      result.should eq(1)
+    end
+
+    it "returns 1 when --python-venv path does not exist" do
+      result = Sandboxer::CLI.run(["run", "--python-venv", "/nonexistent/.venv", "--", "echo", "hi"])
+      result.should eq(1)
+    end
+
+    it "returns 1 when --python-venv path is not a valid virtualenv" do
+      Dir.mkdir_p("/tmp/sbx_cli_not_a_venv")
+      begin
+        result = Sandboxer::CLI.run(["run", "--python-venv", "/tmp/sbx_cli_not_a_venv", "--", "echo", "hi"])
+        result.should eq(1)
+      ensure
+        Dir.delete("/tmp/sbx_cli_not_a_venv")
+      end
+    end
+
     it "returns 1 for an unknown --add preset name" do
       result = Sandboxer::CLI.run(["run", "--add", "bogus-preset", "--", "echo", "hi"])
       result.should eq(1)
