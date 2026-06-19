@@ -71,6 +71,22 @@ module Sandboxer
       ; Allow unconditionally rather than coupling it to allow_network.
       (allow network-outbound (literal "/private/var/run/syslog"))
 
+      ; --- DNS resolver config ---
+      ; resolv(3) reads these directly for hostname resolution — not via
+      ; the system resolver APIs. Any process that does hostname lookup
+      ; (Ruby resolv.rb, Python socket, Go net, etc.) needs both.
+      ;
+      ; Both paths require two literals each: the symlink the process opens
+      ; and the real target the kernel resolves to. A deny at symlink
+      ; traversal fires before the target rule is ever evaluated.
+      ;   /etc/resolv.conf -> ../var/run/resolv.conf -> /private/var/run/resolv.conf
+      ;   /etc/hosts       ->                        -> /private/etc/hosts
+      (allow file-read-data
+        (literal "/etc/resolv.conf")
+        (literal "/private/var/run/resolv.conf")
+        (literal "/etc/hosts")
+        (literal "/private/etc/hosts"))
+
       SBPL
 
     def available? : Bool
