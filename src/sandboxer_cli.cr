@@ -46,6 +46,7 @@ module Sandboxer
       policy_path = nil
       allow_network_override = nil
       preset_names = [] of String
+      ruby_path = nil
 
       # Split argv on "--" to separate sandboxer flags from the command.
       sep = argv.index("--")
@@ -82,6 +83,10 @@ module Sandboxer
           preset_names << name
         end
 
+        opts.on("--ruby PATH", "Merge a Ruby preset derived from the given binary path") do |path|
+          ruby_path = path
+        end
+
         opts.on("-h", "--help", "Show this help") do
           puts opts
           exit 0
@@ -99,12 +104,25 @@ module Sandboxer
 
       # Apply presets.
       preset_names.each do |name|
+        unless KNOWN_PRESETS.includes?(name)
+          STDERR.puts "sandboxer run: unknown preset #{name.inspect}. Known presets: #{KNOWN_PRESETS.join(", ")}."
+          return 1
+        end
         preset = resolve_preset(name)
         if preset.nil?
-          STDERR.puts "sandboxer run: unknown preset #{name.inspect}. Known presets: brew."
+          STDERR.puts "sandboxer run: preset #{name.inspect} is not supported on this platform."
           return 1
         end
         policy = policy.merge(preset)
+      end
+
+      # Apply Ruby executable preset.
+      if path = ruby_path
+        unless File.exists?(path)
+          STDERR.puts "sandboxer run: --ruby path not found: #{path.inspect}"
+          return 1
+        end
+        policy = policy.merge(Preset::Ruby.for_executable(path))
       end
 
       # Apply CLI overrides on top of the policy file.
@@ -137,6 +155,7 @@ module Sandboxer
       policy_path = nil
       platform = detect_platform
       preset_names = [] of String
+      ruby_path = nil
 
       OptionParser.parse(argv) do |opts|
         opts.banner = "Usage: sandboxer inspect [options]"
@@ -151,6 +170,10 @@ module Sandboxer
 
         opts.on("--add PRESET", "Merge a named preset into the policy (e.g. brew)") do |name|
           preset_names << name
+        end
+
+        opts.on("--ruby PATH", "Merge a Ruby preset derived from the given binary path") do |path|
+          ruby_path = path
         end
 
         opts.on("-h", "--help", "Show this help") do
@@ -169,12 +192,25 @@ module Sandboxer
 
       # Apply presets.
       preset_names.each do |name|
+        unless KNOWN_PRESETS.includes?(name)
+          STDERR.puts "sandboxer inspect: unknown preset #{name.inspect}. Known presets: #{KNOWN_PRESETS.join(", ")}."
+          return 1
+        end
         preset = resolve_preset(name)
         if preset.nil?
-          STDERR.puts "sandboxer inspect: unknown preset #{name.inspect}. Known presets: brew."
+          STDERR.puts "sandboxer inspect: preset #{name.inspect} is not supported on this platform."
           return 1
         end
         policy = policy.merge(preset)
+      end
+
+      # Apply Ruby executable preset.
+      if path = ruby_path
+        unless File.exists?(path)
+          STDERR.puts "sandboxer inspect: --ruby path not found: #{path.inspect}"
+          return 1
+        end
+        policy = policy.merge(Preset::Ruby.for_executable(path))
       end
 
       # Dummy command for display; inspect shows structure, not a real execution.
@@ -241,27 +277,29 @@ module Sandboxer
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
-    private macro platform_preset(name)
+    # All available preset names, used for --add validation and error messages.
+    KNOWN_PRESETS = %w[brew]
+
+    # Maps a preset name to the appropriate Policy for the current platform.
+    # Returns nil for unknown preset names; returns nil (with a warning) for
+    # presets not supported on the current platform.
+    private def self.resolve_preset(name : String) : Policy?
+      case name
+      when "brew" then preset_brew
+      else             nil
+      end
+    end
+
+    private def self.preset_brew : Policy?
       {% if flag?(:darwin) && flag?(:aarch64) %}
-        Preset::{{name.titleize.id}}::MACOS_ARM
+        Preset::Brew::MACOS_ARM
       {% elsif flag?(:darwin) %}
-        Preset::{{name.titleize.id}}::MACOS_INTEL
+        Preset::Brew::MACOS_INTEL
       {% elsif flag?(:linux) %}
-        Preset::{{name.titleize.id}}::LINUX
+        Preset::Brew::LINUX
       {% else %}
         nil
       {% end %}
-    end
-
-    # Maps a preset name to the appropriate Policy for the current platform.
-    # Returns nil for unknown names.
-    private def self.resolve_preset(name : String) : Policy?
-      case name
-      when "brew"
-        platform_preset("brew")
-      else
-        nil
-      end
     end
 
     private def self.load_policy(path : String?) : Policy?
@@ -308,9 +346,11 @@ module Sandboxer
           sandboxer run --policy policy.json -- python3 script.py
           sandboxer run --policy policy.json --allow-network -- curl https://example.com
           sandboxer run --policy policy.json --add brew -- brew list
+          sandboxer run --ruby $(which ruby) -- ruby script.rb
+          sandboxer run --ruby $(rbenv which ruby) -- ruby script.rb
           sandboxer inspect --policy policy.json
           sandboxer inspect --policy policy.json --platform macos
-          sandboxer inspect --policy policy.json --add brew --platform macos
+          sandboxer inspect --ruby $(which ruby) --platform macos
           sandboxer check
 
         Policy file (JSON):
