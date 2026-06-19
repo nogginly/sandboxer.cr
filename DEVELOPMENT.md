@@ -289,7 +289,7 @@ No other files need to change. The `Policy` is already complete — the new runn
 
 ### Known limitations
 
-**macOS BASELINE completeness.** The `BASELINE` in `SandboxExec` covers the minimum for most commands, but some tools need additional Mach service names or file paths. See [Debugging — macOS](#macos-1) for the workflow. Contributions that extend the baseline for common cases (e.g. Python, Node, shell built-ins) are welcome.
+**macOS BASELINE completeness.** The `BASELINE` in `SandboxExec` covers process lifecycle, Mach IPC, dyld (Intel and Apple Silicon), common device nodes, Darwin/CoreFoundation plumbing, syslog, and DNS resolver config. Tools that shell out or use language-specific runtimes may need additional paths — use the deny log workflow in [Debugging — macOS](#macos-1) to identify them. Toolchain-specific needs belong in a `Preset` rather than the BASELINE.
 
 **tmpfs on macOS.** `tmpfs_paths` has different semantics on macOS than on Linux. Documented in-code, but callers should be aware.
 
@@ -342,6 +342,8 @@ The operation name maps directly to an SBPL allow rule. For the line above:
 2. Add the denied operation to `BASELINE` in `macos_sandbox_exec.cr` if it is required by all processes, or to the policy's path lists if it is path-specific.
 3. Rebuild and retest.
 4. Repeat until no denials appear and the command exits cleanly.
+
+**Symlinked paths require two entries.** SBPL matches rules against the path the kernel resolves to after following symlinks — but a deny fires at the symlink node itself before the kernel ever follows it. If a path in a denial log is a symlink, both the symlink path and its real target need a rule. For example, `/etc/resolv.conf` symlinks to `/private/var/run/resolv.conf` on macOS; only allowing the resolved target leaves the symlink traversal denied. Use `realpath <path>` to find the target and add both literals.
 
 **Reading the exit code.** Signal exits typically mean a critical operation was denied during process startup before any output was produced. The mapping is `exit_code = 128 + signal_number`, so exit code 134 = SIGABRT (signal 6). This almost always points to a missing dyld or Mach IPC permission in the BASELINE rather than a policy path issue.
 
