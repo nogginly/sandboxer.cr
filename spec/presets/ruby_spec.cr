@@ -108,7 +108,7 @@ describe Sandboxer::Preset::Ruby do
 
       begin
         policy = Sandboxer::Preset::Ruby.for_executable(link_bin)
-        policy.read_only_paths.should contain(real_root)
+        policy.read_only_paths.should contain(File.realpath(real_root))
         policy.read_only_paths.should_not contain(File.dirname(link_bin))
       ensure
         File.delete(link_bin)
