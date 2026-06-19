@@ -126,6 +126,27 @@ policy = my_policy.merge(Sandboxer::Preset::Brew::LINUX)
 
 Presets only add permissions — they never enable network access or override your `working_dir` unless you merge them in that order intentionally.
 
+#### Ruby
+
+Static presets cover known fixed layouts (Homebrew, system packages):
+
+```crystal
+policy = my_policy.merge(Sandboxer::Preset::Ruby::MACOS_ARM_BREW)
+policy = my_policy.merge(Sandboxer::Preset::Ruby::MACOS_INTEL_BREW)
+policy = my_policy.merge(Sandboxer::Preset::Ruby::LINUX_SYSTEM)
+policy = my_policy.merge(Sandboxer::Preset::Ruby::LINUX_BREW)
+```
+
+For version-managed rubies (`ruby-install`, `rbenv`, `chruby`, `asdf`), where the install root varies at runtime, derive a policy from the actual binary instead:
+
+```crystal
+policy = my_policy.merge(Sandboxer::Preset::Ruby.for_executable("/path/to/ruby"))
+```
+
+`for_executable` resolves symlinks and works for any self-contained Ruby install tree. For shim-based managers, resolve the real binary first — `rbenv which ruby` or `asdf which ruby` — since the shim itself isn't the binary to point at.
+
+All Ruby presets include the default per-user gem directory (`~/.gem`). macOS system Ruby is intentionally not covered — its lib paths depend on the active Xcode/CLT toolchain and aren't stable. See [DEVELOPMENT.md](./DEVELOPMENT.md) for the full rationale.
+
 ## CLI
 
 > **Note:** The CLI is not yet distributed as a release binary. If you need it today, build from source — see [DEVELOPMENT.md](./DEVELOPMENT.md). A release workflow is planned.
@@ -139,11 +160,16 @@ sandboxer run --policy policy.json -- command [args...]
 # Run a brew-installed command
 sandboxer run --policy policy.json --add brew -- brew list
 
+# Run a Ruby script, deriving the policy from the active ruby binary
+sandboxer run --ruby $(which ruby) -- ruby script.rb
+sandboxer run --ruby $(rbenv which ruby) -- ruby script.rb
+
 # Print the native invocation without executing
 sandboxer inspect --policy policy.json [--platform linux|macos]
 
 # Preview the effect of a preset without executing
 sandboxer inspect --policy policy.json --add brew [--platform linux|macos]
+sandboxer inspect --ruby $(which ruby) [--platform linux|macos]
 
 # Check which sandbox runners are available on this host
 sandboxer check

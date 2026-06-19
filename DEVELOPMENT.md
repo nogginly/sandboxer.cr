@@ -60,31 +60,6 @@ flowchart TD
 
 Nothing in `Policy` knows about bwrap or SBPL. Nothing in a `Runner` is exposed at the library API surface beyond `available?` and `run`. This makes it straightforward to add a new platform without touching anything else.
 
-### Source layout
-
-```mermaid
----
-displayMode: compact
-config:
-  layout: elk
-  themeVariables:
-    fontSize: 12px
----
-graph TD
-    CLI["sandboxer_cli.cr\nSandboxer::CLI"]
-    LIB["sandboxer.cr\nSandboxer"]
-    POL["policy.cr\nPolicy"]
-    RUN["runner.cr\nRunner"]
-    RES["result.cr\nResult"]
-    ERR["error.cr\nError"]
-    BW["bwrap.cr\nBwrap"]
-    SE["macos_sandbox_exec.cr\nSandboxExec"]
-    BR["presets/brew.cr\nPreset::Brew"]
-
-    CLI -->|requires| LIB
-    LIB -->|requires| ERR & RES & POL & RUN & BW & SE & BR
-```
-
 The library entry point (`sandboxer.cr`) and the CLI entry point (`sandboxer_cli.cr`) are intentionally separate files. Users who `require "sandboxer"` get the library with no CLI code. The CLI requires the library and adds the `Sandboxer::CLI` module on top.
 
 ### The Policy
@@ -137,6 +112,8 @@ policy = my_policy.merge(Sandboxer::Preset::Brew::MACOS_ARM)
 ```
 
 Preset files live in `src/sandboxer/presets/`. Adding a new preset means adding a file there, requiring it in `sandboxer.cr`, and adding specs. No runner code changes.
+
+**Static presets vs. builders.** Some toolchains have a fixed, predictable install layout (Homebrew, system packages) — these are plain `Policy` constants. Others are installed by a version manager (rbenv, asdf, ruby-install, pyenv) where the install root varies at runtime and can't be known in advance. For those, expose a `for_executable(path)` class method instead of a constant — see `Preset::Ruby.for_executable` for the pattern: resolve the binary's real path via `File.realpath` (handles symlinked installs transparently), derive the install root from the resolved path, and build a `Policy` from that. Shim-based managers (rbenv, asdf) intercept execution via a wrapper script rather than a symlink — callers must resolve the real binary first (`rbenv which ruby`) before passing it in, since `realpath` on a shim just returns the shim.
 
 ### The Runner abstraction
 
@@ -268,6 +245,10 @@ The CLI lives in `sandboxer_cli.cr` as `Sandboxer::CLI`, separate from the libra
 
 **CLI overrides.** `--allow-network` and `--no-network` on `run` override the policy file's `allow_network` field after loading. This supports one-off overrides without editing the policy file.
 
+**Presets on the CLI.** `--add PRESET` merges a named static preset (currently `brew`) into the loaded policy. `KNOWN_PRESETS` is the single source of truth for valid names — both the unknown-preset error message and (eventually) any `--help` listing should derive from it rather than hardcoding the list, so it can't drift out of sync as presets are added. `resolve_preset` maps a name to a per-platform `Policy?` via a small private method per preset (e.g. `preset_brew`) rather than a shared macro — different presets support different sets of platforms (Ruby's system layout is Linux-only, for instance), so a one-size-fits-all platform-dispatch macro doesn't generalise. A `nil` result is platform-unsupported, distinct from an unrecognised name, and the CLI reports the two cases differently.
+
+**Builder-style presets on the CLI.** Presets that need a runtime path (see `for_executable` above) get their own flag rather than going through `--add`. `--ruby PATH` on `run` and `inspect` merges `Preset::Ruby.for_executable(path)` into the policy, e.g. `sandboxer run --ruby $(which ruby) -- ruby script.rb`. This keeps `--add` reserved for presets with no required argument.
+
 **`inspect` is cross-platform.** Because both runners are always compiled, `--platform linux` works on macOS and `--platform macos` works on Linux. This is useful for reviewing what a policy will produce before deploying to a different OS.
 
 **Exit codes** follow Unix conventions: `0` for success, `1` for any Sandboxer-level error. The exit code of the sandboxed command is propagated directly when `run` succeeds.
@@ -287,6 +268,16 @@ To add a runner for a new platform (e.g. FreeBSD via `jail(8)`):
 
 No other files need to change. The `Policy` is already complete — the new runner only needs to map existing fields to its native invocation.
 
+### Adding a new preset
+
+To add a preset for a new toolchain (e.g. `Preset::Python`):
+
+1. Create `src/sandboxer/presets/python.cr`. If the layout is fixed per platform, define `Policy` constants (`MACOS_ARM_BREW`, `LINUX_SYSTEM`, etc., following `Preset::Brew`'s naming). If the install root varies at runtime (a version manager), add a `for_executable(path)` class method instead, following `Preset::Ruby`'s pattern.
+2. No `require` needed — `sandboxer.cr` already requires `./sandboxer/presets/*`.
+3. Add specs under `spec/presets/python_spec.cr`, covering path contents for each static constant and, if applicable, the symlink-resolution case for `for_executable`.
+4. If the preset should be reachable from the CLI: add the name to `KNOWN_PRESETS` and a `when` branch in `resolve_preset` (for static, no-argument presets via `--add`), or a new flag like `--ruby` (for builder-style presets needing a runtime path).
+5. Document the preset in the README's Presets section and note any excluded layouts or caveats (e.g. shim-based managers) in DEVELOPMENT.md.
+
 ### Known limitations
 
 **macOS BASELINE completeness.** The `BASELINE` in `SandboxExec` covers process lifecycle, Mach IPC, dyld (Intel and Apple Silicon), common device nodes, Darwin/CoreFoundation plumbing, syslog, and DNS resolver config. Tools that shell out or use language-specific runtimes may need additional paths — use the deny log workflow in [Debugging — macOS](#macos-1) to identify them. Toolchain-specific needs belong in a `Preset` rather than the BASELINE.
@@ -304,6 +295,8 @@ Call `available?` before use and surface a clear error if it returns false.
 **Windows.** Not implemented. The right approach is a small native shim (`sandboxer-shim.exe`) that creates an AppContainer and exec's an arbitrary command, invoked by a `Sandboxer::AppContainer` runner subclass. See `ARCHITECTURE.md` for the design discussion.
 
 **Environment passthrough on macOS.** `sandbox-exec` inherits the full parent environment. There is no SBPL mechanism to strip or override env vars. If env isolation matters on macOS, the caller must sanitise the environment before invoking Sandboxer.
+
+**Ruby preset scope.** `Preset::Ruby` intentionally excludes macOS system Ruby (`/usr/bin/ruby`) — its lib paths depend on whichever Xcode/CLT toolchain is active and aren't stable across machines or updates; it's also deprecated for developer use. `Preset::Ruby::LINUX_BREW` only covers `/home/linuxbrew/.linuxbrew`; the per-user `~/.linuxbrew` fallback is a runtime path that can't be known at preset-definition time, same limitation as `Preset::Brew::LINUX`. Both are deliberate scope cuts, not oversights — see the `for_executable` builder for cases a static preset can't cover.
 
 ## Debugging
 
