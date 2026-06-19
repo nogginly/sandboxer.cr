@@ -13,8 +13,7 @@
 #
 # Run with:  crystal spec spec/presets/brew_spec.cr
 
-require "spec"
-require "../../src/sandboxer"
+require "../spec_helper"
 
 describe Sandboxer::Preset::Brew do
   it "MACOS_ARM grants read-only access to /opt/homebrew" do
