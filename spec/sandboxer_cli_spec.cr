@@ -1,4 +1,4 @@
-require "spec"
+require "./spec_helper"
 require "../src/sandboxer_cli"
 
 describe Sandboxer::CLI do
