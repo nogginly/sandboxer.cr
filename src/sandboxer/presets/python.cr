@@ -120,7 +120,7 @@ module Sandboxer
       def self.for_executable(path : String) : Policy
         real = File.realpath(path)
         root = File.dirname(File.dirname(real))
-        Policy.build { |policy| policy.read_only root }
+        Policy.build(&.read_only(root))
       end
 
       # Derives a policy from the path to a virtual environment directory
@@ -144,7 +144,7 @@ module Sandboxer
         base_python = parse_pyvenv_executable(File.read(cfg_path))
 
         base_policy = for_executable(base_python)
-        base_policy.merge(Policy.build { |policy| policy.read_only venv_root })
+        base_policy.merge(Policy.build(&.read_only(venv_root)))
       end
 
       # Parses the base interpreter binary path out of a pyvenv.cfg file's
