@@ -67,6 +67,16 @@ describe Sandboxer::CLI do
         result.should eq(1)
       end
     end
+
+    it "returns 1 when --ruby path does not exist" do
+      result = Sandboxer::CLI.run(["run", "--ruby", "/nonexistent/ruby", "--", "echo", "hi"])
+      result.should eq(1)
+    end
+
+    it "returns 1 for an unknown --add preset name" do
+      result = Sandboxer::CLI.run(["run", "--add", "bogus-preset", "--", "echo", "hi"])
+      result.should eq(1)
+    end
   end
 
   describe "sandbox inspect" do
